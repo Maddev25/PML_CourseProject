@@ -1,0 +1,188 @@
+---
+title: "Prediction Assignment"
+author: "Vasudevan Durairaj"
+date: "May 8, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Practical Machine Learning Course Project for Qualitative Activity Recognition of Weight Lifting Exercises 
+
+### Overview 
+This report aims to predict the Qualitative Activity Recognition of Weight lifting exercises based on a specific data set of six participants. The  objective of this project is to use the data from the accelerometers on the belt, forearm, arm and dumbell of six participants wherein they had been asked to perform the barbell lifts correctly and incorrectly in five different ways and the goal is to predict the manner in which they did the exercise. 
+
+#### Background 
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.More information is available from the website here:
+http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har(see the section on the Weight Lifting Exercise Dataset).
+
+Read more at http://groupware.les.inf.puc-rio.br/har#ixzz3xsbS5bVX
+
+### Data Processing & Exploratory Analysis 
+#### Data Set Overview 
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.
+Full source:
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. "Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13)". Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Thanks to the above mentioned authors for being so generous in allowing their data to be used for this kind of assignment.
+
+A short description of the datasets content from the authors' website:
+
+"Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg)."
+
+#### Data Processing 
+The next step is to load the dataset from the URL provided above. The training dataset is then partitioned in 2 to create a Training set (70% of the data) for the modeling process and a Test set (with the remaining 30%) for the validations. The testing dataset is not changed and will only be used for the quiz results generation.
+```{r cache=TRUE, echo=FALSE}
+##clear the memory 
+rm(list = ls())
+
+## load libraries needed for this project 
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(randomForest)
+
+## Set the seed for reproducibility 
+set.seed(34324)
+
+## Download the Datasets
+download.file(url ="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pmltraining.csv")
+download.file(url= "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pmltesting.csv")
+
+training <- read.csv(file = "pmltraining.csv")
+testing <- read.csv(file = "pmltesting.csv")
+
+inTrain <- createDataPartition(training$classe, p= 0.7, list = FALSE)
+
+trainSet <- training[inTrain,]
+testSet <- training[-inTrain,]
+
+dim(trainSet)
+dim(testSet)
+```
+Both created datasets have 160 variables. Those variables have plenty of NA, that can be removed with the cleaning procedures below. The Near Zero variance (NZV) variables are also removed and the ID variables as well.
+```{r cache=TRUE, echo=FALSE}
+## remove variables with Near Zero Variance 
+nzv <- nearZeroVar(trainSet)
+trainSet <- trainSet[,-nzv]
+testSet <- testSet[,-nzv]
+
+# remove variables that are mostly NA
+AllNA    <- sapply(trainSet, function(x) mean(is.na(x))) > 0.95
+trainSet <- trainSet[, AllNA==FALSE]
+testSet  <- testSet[, AllNA==FALSE]
+
+# remove identification only variables (columns 1 to 5)
+trainSet <- trainSet[, -(1:5)]
+testSet  <- testSet[, -(1:5)]
+
+dim(trainSet)
+dim(testSet)
+
+```
+After Data Cleansing, the number of variables for analysis had been reduced to 54 
+
+#### Exploratory Analysis 
+Correlation analysis of variables is conducted before model building procedures  
+```{r cache=TRUE}
+cMatrix <- cor(trainSet[,-54])
+corrplot(cMatrix, method = "color", order= "FPC", type = "lower", tl.col = rgb(1,1,1), tl.cex = 0.7)
+```
+
+In the graph above, the highly correlated variables are shown in dark colors. To make an even more compact analysis, a PCA (Principal Components Analysis) could be performed as pre-processing step to the datasets. Nevertheless, as the correlations are quite few, this step will not be applied for this assignment.
+
+### Prediction Model Building 
+In order to build a better prediction model, three different methods will be applied to model the regressions (in the Train dataset) and the best one (with higher accuracy when applied to the Test dataset) will be used for the quiz predictions. As depicted below, Random Forests, Decision Tree and Generalized Boosted Model will be evaluated. A Confusion Matrix is plotted at the end of each analysis to better visualize the accuracy of the models and analyze the out of sample Error estimate. 
+
+#### Random Forest Method 
+We train a model using random forest with a cross validation of 3 folds to avoid overfitting.
+```{r cache=TRUE}
+set.seed(34324)
+## model fit 
+cRF <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+modFitRF <- train(classe ~ ., data = trainSet, method= "rf", trControl = cRF) 
+modFitRF$finalModel
+
+##prediction on Test Data Set 
+predRF <- predict(modFitRF,newdata=testSet)
+confMatRF <- confusionMatrix(predRF, testSet$classe)
+confMatRF
+
+##Plot the Matrix outputs 
+plot(confMatRF$table, col=confMatRF$byClass, main=paste("Random Forest - Accuracy is ", round(confMatRF$overall['Accuracy'],4)))
+
+## Out of Sample Error Estimate
+accRF <- postResample(testSet$classe, predRF)
+acvRF <- accRF[[1]]
+ofseEst <- 1 - acvRF
+ofseEst
+```
+The estimated accuracy of the above model is 99.75% and the estimated out-of-sample error based on our fitted model applied to the cross validation dataset is 0.25%.
+
+#### Decision Trees Method 
+```{r cache=TRUE}
+set.seed(34324)
+## model fit 
+modFitDT <- rpart(classe ~ ., method = "class", data = trainSet)
+
+##prediction on Test Data Set 
+predDT <- predict(modFitDT, newdata = testSet, type = "class")
+confMatDT <- confusionMatrix(predDT, testSet$classe)
+confMatDT
+
+##Plot the Matrix outputs 
+plot(confMatDT$table, col=confMatDT$byClass, main = paste("Decision Tree - Accuracy is ", round(confMatDT$overall['Accuracy'],4)) )
+
+## Out of Sample Error Estimate
+accDT <- postResample(testSet$classe, predDT)
+acvDT <- accDT[[1]]
+ofseEstDT <- 1 - acvDT
+ofseEstDT
+```
+The estimated accuracy of the above model is 73.41% and the estimated out-of-sample error based on our fitted model applied to the cross validation dataset is 26.59%.
+
+#### Generalized Boosted Model Method 
+```{r cache=TRUE}
+set.seed(34324)
+## model fit 
+cGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modFitGBM <- train(classe ~ ., data = trainSet, method = "gbm", verbose = FALSE, trControl = cGBM)
+modFitGBM$finalModel
+
+##prediction on Test Data Set 
+predGBM <- predict(modFitGBM, newdata = testSet)
+confMatGBM <- confusionMatrix(predGBM, testSet$classe)
+confMatGBM
+
+##Plot the Matrix outputs 
+plot(confMatGBM$table, col= confMatGBM$byClass, main = paste("GBM - Accuracy is ", round(confMatGBM$overall['Accuracy'],4)))
+
+## Out of Sample Error Estimate
+accGBM <- postResample(testSet$classe, predGBM)
+acvGBM <- accGBM[[1]]
+ofseEstGBM <- 1 - acvGBM
+ofseEstGBM
+
+```
+The estimated accuracy of the above model is 98.78% and the estimated out-of-sample error based on our fitted model applied to the cross validation dataset is 1.22%.
+
+### Conclusion
+Based on the fitment of prediction Models above, the accuracy is best in Random Forest method and hence it is applied on the testing Dataset to predict
+
+#### Application of Predicted Model to Test Data 
+```{r cache=TRUE}
+predFinal <- predict(modFitRF, newdata = testing)
+predFinal
+```
+
